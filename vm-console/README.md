@@ -6,6 +6,8 @@ understand the shape of the data behind it.
 SvelteKit 2 · Svelte 5 (runes) · TypeScript (strict) · Tailwind v4 ·
 shadcn-svelte.
 
+![victoria metrics diagram](https://docs.victoriametrics.com/victoriametrics/README-components.webp)
+
 ---
 
 ## Run the whole stack with Docker
