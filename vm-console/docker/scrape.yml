@@ -16,15 +16,21 @@ global:
 scrape_configs:
   - job_name: victoriametrics
     static_configs:
-      - targets: ['victoriametrics:8428']
+      - targets: ["victoriametrics:8428"]
         labels:
           component: storage
 
   - job_name: vmagent
     static_configs:
-      - targets: ['vmagent:8429']
+      - targets: ["vmagent:8429"]
         labels:
           component: agent
+
+  - job_name: vmalert
+    static_configs:
+      - targets: ["vmalert:8880"]
+        labels:
+          component: alerting
 
   # Your app, once it exposes /metrics on the compose network:
   #

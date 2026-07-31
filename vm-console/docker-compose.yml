@@ -11,7 +11,12 @@ services:
     container_name: vm-storage
     restart: unless-stopped
     ports:
-      - '8428:8428'
+      - 8428:8428 # Original
+      - 8089:8089
+      - 8089:8089/udp
+      - 2003:2003
+      - 2003:2003/udp
+      - 4242:4242
     volumes:
       - vm-data:/victoria-metrics-data
     command:
@@ -23,6 +28,11 @@ services:
       - -search.latencyOffset=10s
       - -search.maxQueryDuration=60s
       - -loggerFormat=json
+      #* Addons
+      - -graphiteListenAddr=:2003
+      - -opentsdbListenAddr=:4242
+      - -influxListenAddr=:8089
+      - -vmalert.proxyURL=http://vmalert:8880
     healthcheck:
       test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8428/health']
       interval: 10s
@@ -70,6 +80,43 @@ services:
       victoriametrics:
         condition: service_healthy
 
+
+  # vmalert executes alerting and recording rules
+  vmalert:
+    image: victoriametrics/vmalert:latest # v1.148.0
+    depends_on:
+      - "victoriametrics"
+      - "alertmanager"
+    ports:
+      - 8880:8880
+    volumes:
+      - ./docker/alerts/rules/alerts-single-node.yml:/etc/alerts/alerts-single-node.yml
+      - ./docker/alerts/rules/alerts-health.yml:/etc/alerts/alerts-health.yml
+      - ./docker/alerts/rules/alerts-vmagent.yml:/etc/alerts/alerts-vmagent.yml
+      - ./docker/alerts/rules/alerts-vmalert.yml:/etc/alerts/alerts-vmalert.yml
+      - ./docker/alerts/rules/alerts-vmbackupmanager.yml:/etc/alerts/alerts-vmbackupmanager.yml
+    command:
+      - "--datasource.url=http://victoriametrics:8428/"
+      - "--remoteRead.url=http://victoriametrics:8428/"
+      - "--remoteWrite.url=http://vmagent:8429/"
+      - "--notifier.url=http://alertmanager:9093/"
+      - "--rule=/etc/alerts/*.yml"
+      # display source of alerts in grafana
+      - "--external.url=http://127.0.0.1:3000" #grafana outside container
+      - '--external.alert.source=explore?orgId=1&left={"datasource":"VictoriaMetrics","queries":[{"expr":{{.Expr|jsonEscape|queryEscape}},"refId":"A"}],"range":{"from":"{{ .ActiveAt.UnixMilli }}","to":"now"}}'
+    restart: always
+
+  # alertmanager receives alerting notifications from vmalert
+  # and distributes them according to --config.file.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    volumes:
+      - ./docker/alerts/alertmanager.yml:/config/alertmanager.yml
+    command:
+      - "--config.file=/config/alertmanager.yml"
+    ports:
+      - 9093:9093
+    restart: always
 volumes:
   vm-data:
   vmagent-data:
