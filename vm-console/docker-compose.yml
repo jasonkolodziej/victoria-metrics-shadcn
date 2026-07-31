@@ -1,0 +1,75 @@
+name: victoria-console
+
+# Pinned to the v1.136 LTS line (supported for 12 months from v1.136.0).
+# v1.148.0 is the newer community release if you want the latest features.
+# Do not use v1.140.0, v1.136.4 or v1.122.19 — they mis-evaluate the operand
+# order in binary expressions.
+
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:latest # v1.136.14
+    container_name: vm-storage
+    restart: unless-stopped
+    ports:
+      - '8428:8428'
+    volumes:
+      - vm-data:/victoria-metrics-data
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -httpListenAddr=:8428
+      - -retentionPeriod=30d
+      # The default 30s offset hides the most recent samples, which makes a
+      # live dashboard look broken. Match it to the scrape interval instead.
+      - -search.latencyOffset=10s
+      - -search.maxQueryDuration=60s
+      - -loggerFormat=json
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8428/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  vmagent:
+    image: victoriametrics/vmagent:latest # v1.136.14
+    container_name: vm-agent
+    restart: unless-stopped
+    ports:
+      - '8429:8429'
+    volumes:
+      - ./docker/scrape.yml:/etc/vmagent/scrape.yml:ro
+      - vmagent-data:/vmagent-data
+    command:
+      - -promscrape.config=/etc/vmagent/scrape.yml
+      - -remoteWrite.url=http://victoriametrics:8428/api/v1/write
+      - -remoteWrite.tmpDataPath=/vmagent-data
+      - -httpListenAddr=:8429
+      - -loggerFormat=json
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+
+  console:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vm-console
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      # Container-to-container, so this is the service name — not localhost.
+      # Only the console's server process ever resolves it; the browser talks
+      # to the console, and the console talks to VictoriaMetrics.
+      VM_URL: http://victoriametrics:8428
+      VM_TIMEOUT_MS: '60000'
+      # Where the browser reaches this app. adapter-node checks it on requests
+      # that change state; change it if you publish on another host or port.
+      ORIGIN: http://localhost:3000
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+
+volumes:
+  vm-data:
+  vmagent-data:

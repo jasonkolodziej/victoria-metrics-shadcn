@@ -1,0 +1,33 @@
+# vmagent scrape config.
+#
+# Out of the box this scrapes VictoriaMetrics and vmagent themselves, which is
+# enough to make the console useful the moment it starts: every example query
+# on the empty state resolves against these targets.
+#
+# Add your own services below — vmagent speaks the Prometheus scrape config
+# format, so anything that works with Prometheus works here.
+
+global:
+  scrape_interval: 10s
+  scrape_timeout: 5s
+  external_labels:
+    env: local
+
+scrape_configs:
+  - job_name: victoriametrics
+    static_configs:
+      - targets: ['victoriametrics:8428']
+        labels:
+          component: storage
+
+  - job_name: vmagent
+    static_configs:
+      - targets: ['vmagent:8429']
+        labels:
+          component: agent
+
+  # Your app, once it exposes /metrics on the compose network:
+  #
+  # - job_name: my-service
+  #   static_configs:
+  #     - targets: ['my-service:8080']

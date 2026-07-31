@@ -1,0 +1,173 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+   Palette — "chart recorder"
+
+   ink        #16181D  graphite, all text and dark chrome
+   desk       #E9E7E2  the surface the instrument sits on
+   paper      #FCFBF9  plot and card surface; the brightest thing on screen
+   rule       #D6D2C9  hairline borders and gridlines
+   pen-1      #B01455  primary action, cursor, "now" marker
+   pens 2..6           the remaining plotter inks, for multi-series overlays
+
+   Light is the designed default: dense line data reads better as ink on paper,
+   and the graphite chrome keeps the plot the loudest element in the room.
+   Dark mode is a real second theme, not an inversion.
+--------------------------------------------------------------------------- */
+
+:root {
+	--radius: 0.25rem;
+
+	--background: #e9e7e2;
+	--foreground: #16181d;
+	--card: #fcfbf9;
+	--card-foreground: #16181d;
+	--popover: #fcfbf9;
+	--popover-foreground: #16181d;
+	--primary: #b01455;
+	--primary-foreground: #fcfbf9;
+	--secondary: #ddd9d1;
+	--secondary-foreground: #16181d;
+	--muted: #ddd9d1;
+	--muted-foreground: #5b6169;
+	--accent: #16697a;
+	--accent-foreground: #fcfbf9;
+	--destructive: #8c3b2e;
+	--destructive-foreground: #fcfbf9;
+	--border: #d6d2c9;
+	--input: #cbc6bb;
+	--ring: #b01455;
+
+	--plot-paper: #fcfbf9;
+	--plot-grid: #e2ded5;
+	--plot-axis: #b8b2a6;
+	--plot-cursor: #b01455;
+
+	--pen-1: #b01455;
+	--pen-2: #16697a;
+	--pen-3: #a8601a;
+	--pen-4: #3b3b8f;
+	--pen-5: #4e7a3a;
+	--pen-6: #8c3b2e;
+}
+
+.dark {
+	--background: #121317;
+	--foreground: #e8e6e1;
+	--card: #191b20;
+	--card-foreground: #e8e6e1;
+	--popover: #191b20;
+	--popover-foreground: #e8e6e1;
+	--primary: #e8477f;
+	--primary-foreground: #121317;
+	--secondary: #23262c;
+	--secondary-foreground: #e8e6e1;
+	--muted: #23262c;
+	--muted-foreground: #9a9ea6;
+	--accent: #3aa8bd;
+	--accent-foreground: #121317;
+	--destructive: #d1614f;
+	--destructive-foreground: #121317;
+	--border: #2a2d34;
+	--input: #343841;
+	--ring: #e8477f;
+
+	--plot-paper: #1b1d23;
+	--plot-grid: #292c33;
+	--plot-axis: #454a54;
+	--plot-cursor: #e8477f;
+
+	--pen-1: #e8477f;
+	--pen-2: #3aa8bd;
+	--pen-3: #d9954a;
+	--pen-4: #8087e0;
+	--pen-5: #7fb865;
+	--pen-6: #d1614f;
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+
+	--color-paper: var(--plot-paper);
+	--color-grid: var(--plot-grid);
+
+	--radius-sm: calc(var(--radius) - 2px);
+	--radius-md: var(--radius);
+	--radius-lg: calc(var(--radius) + 2px);
+
+	/* Space Grotesk carries headers and the wordmark only — used with restraint.
+	   IBM Plex Sans runs the interface. IBM Plex Mono carries every number,
+	   timestamp, label set and query, which is most of the text on this page. */
+	--font-display: 'Space Grotesk', 'IBM Plex Sans', system-ui, sans-serif;
+	--font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+@layer base {
+	* {
+		@apply border-border;
+	}
+
+	body {
+		@apply bg-background text-foreground font-sans antialiased;
+		font-feature-settings: 'cv05' 1;
+	}
+
+	/* Numbers must line up in columns everywhere they appear. */
+	.tabular {
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* Small caps section markers. Each one names a real region of the console,
+	   so they are labels rather than decoration. */
+	.eyebrow {
+		@apply font-display text-[0.6875rem] font-medium tracking-[0.14em] uppercase;
+		@apply text-muted-foreground;
+	}
+
+	:focus-visible {
+		@apply outline-ring outline-2 outline-offset-2;
+	}
+
+	::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+	::-webkit-scrollbar-thumb {
+		background: var(--border);
+		border-radius: 6px;
+	}
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}

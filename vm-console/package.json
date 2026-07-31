@@ -1,0 +1,36 @@
+{
+  "name": "victoria-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+  },
+  "devDependencies": {
+    "@internationalized/date": "^3.12.2",
+    "@lucide/svelte": "^1.28.0",
+    "@sveltejs/adapter-node": "^5.2.12",
+    "@sveltejs/kit": "^2.20.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tailwindcss/vite": "^4.1.0",
+    "@tanstack/table-core": "^8.21.3",
+    "bits-ui": "^2.18.1",
+    "svelte": "^5.25.0",
+    "svelte-check": "^4.1.5",
+    "tailwind-variants": "^3.3.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "mode-watcher": "^0.5.1",
+    "tailwind-merge": "^3.0.2",
+    "tw-animate-css": "^1.2.4"
+  },
+  "packageManager": "pnpm@11.18.0+sha512.33d83c77da82f49fba836925c6f1b841181ec3132b670639bd012f7075f5c7cf634c5f870147c19aae7478fac01df09d8892e880454896edd23ee9b33757563c"
+}
