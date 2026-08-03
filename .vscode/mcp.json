@@ -51,6 +51,14 @@
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${input:shadcn-ui-gh-key}"
       }
+    },
+    "victoria-metrics-server": {
+      "type": "http",
+      "url": "https://play-mcp.victoriametrics.com/mcp"
+    },
+    "victoria-metrics-logs": {
+      "type": "http",
+      "url": "https://play-vmlogs-mcp.victoriametrics.com/mcp"
     }
   },
   "inputs": [
