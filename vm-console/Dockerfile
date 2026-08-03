@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# ---- build ------------------------------------------------------------------
-FROM node:22-alpine AS build
+# ---- build --------- original 22-alpine --------------------------------------
+FROM node:lts-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
@@ -18,12 +18,12 @@ RUN test -d src/lib/components/ui/button || { \
 	echo '  npx shadcn-svelte@latest add button input textarea popover select'; \
 	echo ''; \
 	exit 1; \
-}
+	}
 
 RUN npm run build
 
 # ---- runtime ----------------------------------------------------------------
-FROM node:22-alpine AS runtime
+FROM node:lts-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
