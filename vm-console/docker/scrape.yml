@@ -32,6 +32,15 @@ scrape_configs:
         labels:
           component: alerting
 
+  #* macOS note: Docker on macOS runs containers inside a Linux VM,
+  #* so node_exporter will report the VM's metrics (not the Mac's).
+  #* For actual host hardware stats on macOS you'd need a native node_exporter binary running on the host itself.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          component: host
+
   # Your app, once it exposes /metrics on the compose network:
   #
   # - job_name: my-service

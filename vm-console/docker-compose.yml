@@ -73,12 +73,17 @@ services:
       # to the console, and the console talks to VictoriaMetrics.
       VM_URL: http://victoriametrics:8428
       VM_TIMEOUT_MS: '60000'
+      # Same idea, for the read-only vmalert proxy (rule groups + active alerts).
+      VMALERT_URL: http://vmalert:8880
+      VMALERT_TIMEOUT_MS: '15000'
       # Where the browser reaches this app. adapter-node checks it on requests
       # that change state; change it if you publish on another host or port.
       ORIGIN: http://localhost:3000
     depends_on:
       victoriametrics:
         condition: service_healthy
+      vmalert:
+        condition: service_started
 
 
   # vmalert executes alerting and recording rules
@@ -105,6 +110,25 @@ services:
       - "--external.url=http://127.0.0.1:3000" #grafana outside container
       - '--external.alert.source=explore?orgId=1&left={"datasource":"VictoriaMetrics","queries":[{"expr":{{.Expr|jsonEscape|queryEscape}},"refId":"A"}],"range":{"from":"{{ .ActiveAt.UnixMilli }}","to":"now"}}'
     restart: always
+
+  # node_exporter exposes host-level OS/hardware metrics (CPU, memory, disk, network).
+  # Mounted read-only so the container never writes to the host.
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: vm-node-exporter
+    restart: unless-stopped
+    pid: host
+    ports:
+      - '9100:9100'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
 
   # alertmanager receives alerting notifications from vmalert
   # and distributes them according to --config.file.
