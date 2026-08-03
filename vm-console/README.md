@@ -26,6 +26,7 @@ docker compose up -d --build
 | Victoria Console  | http://localhost:3000   | this app                                    |
 | VictoriaMetrics   | http://localhost:8428   | the database (its own UI is at `/vmui`)     |
 | vmagent           | http://localhost:8429   | scraper; targets at `/targets`              |
+| vmalert           | http://localhost:8880   | rule engine; groups at `/groups`, backs the console's Alerts tab |
 
 `vmagent` scrapes VictoriaMetrics and itself every 10s, so the console has
 real data within a few seconds of starting — every example query on the empty
@@ -43,6 +44,9 @@ docker compose down -v
 - **`VM_URL=http://victoriametrics:8428`** — the service name, not localhost.
   The browser never resolves it; only the console's server process does, which
   is the whole point of the proxy.
+- **`VMALERT_URL=http://vmalert:8880`** — same idea, for the Alerts tab. Unset
+  it (or point it somewhere unreachable) and that tab just shows a connection
+  error; the rest of the console is unaffected.
 - **Versions are pinned to the v1.136 LTS line.** Avoid v1.140.0, v1.136.4 and
   v1.122.19 — those mis-evaluate operand order in binary expressions.
 - **`-search.latencyOffset=10s`.** VictoriaMetrics defaults to 30s, which hides
@@ -118,17 +122,22 @@ VM_URL=https://play.victoriametrics.com/select/0/prometheus
 The tenant and API prefix live entirely in `VM_URL`, so cluster and single-node
 deployments use the same build.
 
+The Alerts tab is optional and separately configured: set `VMALERT_URL` to
+wherever vmalert's HTTP API lives (`http://localhost:8880` for a local
+instance). Leave it unset if you don't run vmalert.
+
 ---
 
 ## How it is put together
 
 ```
-docker-compose.yml                VictoriaMetrics + vmagent + console
+docker-compose.yml                VictoriaMetrics + vmagent + vmalert + console
 Dockerfile                        multi-stage, non-root, healthchecked
 docker/scrape.yml                 what vmagent collects
 src/
   routes/
-    api/vm/[...path]/+server.ts   read-only proxy to VictoriaMetrics
+    api/vm/[...path]/+server.ts       read-only proxy to VictoriaMetrics
+    api/vmalert/[...path]/+server.ts  read-only proxy to vmalert
     +layout.svelte                chrome, fonts, light/dark
     +page.svelte                  console layout, URL state sync
   lib/
@@ -137,6 +146,9 @@ src/
       client.ts                   typed client, talks to the proxy
       format.ts                   SI values, axis ticks, auto step
       metricsql.ts                CodeMirror language + completion source
+    vmalert/
+      types.ts                    vmalert API response shapes
+      client.ts                   typed client, talks to its proxy
     state/
       console.svelte.ts           ConsoleState — the whole session
     components/
@@ -150,14 +162,18 @@ src/
       TracePanel.svelte           `trace=1` execution tree
       TraceNode.svelte            one collapsible span in that tree
       CardinalityView.svelte      /status/tsdb cardinality explorer
+      AlertsView.svelte           vmalert rule groups + active alerts
 ```
 
-**Everything goes through the proxy.** The browser never talks to
-VictoriaMetrics directly. Credentials stay on the server, CORS never comes up,
-and only these endpoints are reachable — it is not an open forwarder:
+**Everything goes through a proxy.** The browser never talks to
+VictoriaMetrics or vmalert directly. Credentials stay on the server, CORS
+never comes up, and only a small allowlist of endpoints are reachable on each
+— neither proxy is an open forwarder:
 
-`query` · `query_range` · `series` · `labels` · `label/<name>/values` ·
-`metadata` · `status/tsdb` · `status/active_queries` · `status/top_queries`
+- `api/vm`: `query` · `query_range` · `series` · `labels` ·
+  `label/<name>/values` · `metadata` · `status/tsdb` · `status/active_queries`
+  · `status/top_queries`
+- `api/vmalert`: `groups` · `alerts` · `rule`
 
 **One state object.** `ConsoleState` holds the expression, the window, and the
 last result; everything rendered is `$derived` from it. In-flight queries carry
@@ -210,3 +226,11 @@ cursor when it has focus.
 - **Query tracing.** A "Trace" toggle in `QueryBar` requests `trace=1`;
   VictoriaMetrics' execution tree renders in `TracePanel`/`TraceNode` as a
   collapsible list of spans with per-step timing.
+- **vmalert integration.** A second read-only proxy, `api/vmalert/[...path]`,
+  reaches vmalert's own HTTP API (`groups`, `alerts`, `rule`) the same way
+  `api/vm` reaches VictoriaMetrics — server-side only, small allowlist,
+  configured via `VMALERT_URL` (+ optional `VMALERT_BEARER_TOKEN` /
+  `VMALERT_BASIC_AUTH`, `VMALERT_TIMEOUT_MS`). The new "Alerts" tab
+  (`AlertsView.svelte`) lists every rule group with each rule's health, last
+  evaluation time, and any currently firing/pending instances, and a play
+  button on each rule drops its expression straight into the query editor.
