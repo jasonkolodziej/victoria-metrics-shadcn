@@ -2,6 +2,7 @@
   import TraceNode from "./TraceNode.svelte";
   import type { TraceSpan } from "$lib/vm/types.js";
   import { ChevronDown, ChevronRight } from "@lucide/svelte";
+  import { untrack } from "svelte";
 
   interface Props {
     span: TraceSpan;
@@ -9,7 +10,10 @@
   }
 
   let { span, depth = 0 }: Props = $props();
-  let open = $state(depth < 2);
+  // untrack(() => depth < 2) reads depth once without registering a reactive dependency,
+  // making the intent explicit: open starts from the prop value but is then independently
+  // mutable (the user can toggle it via the expand/collapse button).
+  let open = $state(untrack(() => depth < 2));
   const hasChildren = $derived(!!span.children?.length);
 
   function formatMs(ms: number): string {
