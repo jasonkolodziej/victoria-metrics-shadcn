@@ -85,6 +85,61 @@ services:
       vmalert:
         condition: service_started
 
+  # --- `auth` profile ----------------------------------------------------
+  # Same app, reached through vmauth instead of talking to VictoriaMetrics
+  # and vmalert directly. Off by default so `docker compose up` keeps working
+  # exactly as before; opt in with:
+  #   docker compose --profile auth up -d --build
+  # Runs alongside the plain `console` above (different port), not instead of
+  # it — nothing about the default path changes when you turn this on.
+  console-auth:
+    profiles: ['auth']
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vm-console-auth
+    restart: unless-stopped
+    ports:
+      - '3001:3000'
+    environment:
+      VM_URL: http://vmauth:8427
+      VM_BASIC_AUTH: console-vm:local-dev-vm
+      VM_TIMEOUT_MS: '60000'
+      VMALERT_URL: http://vmauth:8427
+      VMALERT_BASIC_AUTH: console-vmalert:local-dev-vmalert
+      VMALERT_TIMEOUT_MS: '15000'
+      ORIGIN: http://localhost:3001
+    depends_on:
+      vmauth:
+        condition: service_healthy
+
+  # vmauth fronts VictoriaMetrics and vmalert behind one authenticated
+  # endpoint. Only `console-auth` (the `auth` profile) talks to it — see
+  # docker/vmauth.yml for the routing/credentials.
+  vmauth:
+    profiles: ['auth']
+    image: victoriametrics/vmauth:latest # v1.136.14
+    container_name: vm-auth
+    restart: unless-stopped
+    ports:
+      - '8427:8427'
+    volumes:
+      - ./docker/vmauth.yml:/etc/vmauth/vmauth.yml:ro
+    command:
+      - -auth.config=/etc/vmauth/vmauth.yml
+      - -httpListenAddr=:8427
+      - -loggerFormat=json
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+      vmalert:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8427/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   # vmalert executes alerting and recording rules
   vmalert:

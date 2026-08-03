@@ -1,0 +1,18 @@
+# vmauth routing config.
+#
+# vmauth listens on one port and picks the backend per request by matching
+# Basic Auth credentials against the `users` below — there's no path overlap
+# to worry about, since `console-vm` and `console-vmalert` are different
+# identities even though both proxies request `/api/v1/...` paths.
+#
+# These are throwaway local-dev credentials, plain in this repo on purpose —
+# don't reuse them anywhere that isn't `docker compose up` on your laptop.
+# Docs: https://docs.victoriametrics.com/victoriametrics/vmauth/
+users:
+  - username: console-vm
+    password: local-dev-vm
+    url_prefix: 'http://victoriametrics:8428/'
+
+  - username: console-vmalert
+    password: local-dev-vmalert
+    url_prefix: 'http://vmalert:8880/'

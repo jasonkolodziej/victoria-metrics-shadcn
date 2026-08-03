@@ -26,12 +26,29 @@ docker compose up -d --build
 | Victoria Console  | http://localhost:3000   | this app                                    |
 | VictoriaMetrics   | http://localhost:8428   | the database (its own UI is at `/vmui`)     |
 | vmagent           | http://localhost:8429   | scraper; targets at `/targets`              |
-| vmalert           | http://localhost:8880   | rule engine; groups at `/groups`, backs the console's Alerts tab |
+| vmalert           | http://localhost:8880   | rule engine; backs the console's Alerts tab |
 
 `vmagent` scrapes VictoriaMetrics and itself every 10s, so the console has
 real data within a few seconds of starting — every example query on the empty
 state resolves against those targets. Point it at your own services by editing
 `docker/scrape.yml`; it takes standard Prometheus scrape config.
+
+### Optional: fronted by vmauth
+
+```bash
+docker compose --profile auth up -d --build
+```
+
+This adds two more services on top of the default ones above — it doesn't
+replace anything, and the plain console keeps working exactly as before:
+
+| Service                | URL                     | What it is                                        |
+| ----------------------- | ----------------------- | -------------------------------------------------- |
+| Victoria Console (auth) | http://localhost:3001   | the same app, reached through vmauth instead       |
+| vmauth                  | http://localhost:8427   | fronts VictoriaMetrics + vmalert with per-user auth |
+
+See [Notes on the compose file](#notes-on-the-compose-file) for how the
+routing works.
 
 Data survives `docker compose down` in the `vm-data` volume. To start clean:
 
@@ -44,9 +61,21 @@ docker compose down -v
 - **`VM_URL=http://victoriametrics:8428`** — the service name, not localhost.
   The browser never resolves it; only the console's server process does, which
   is the whole point of the proxy.
-- **`VMALERT_URL=http://vmalert:8880`** — same idea, for the Alerts tab. Unset
-  it (or point it somewhere unreachable) and that tab just shows a connection
-  error; the rest of the console is unaffected.
+- **`vmauth` and `console-auth` are both tagged `profiles: ['auth']`,** so
+  `docker compose up` (no flags) never starts them — the default `console`
+  service is unaffected and talks to VictoriaMetrics/vmalert directly, exactly
+  as before vmauth existed in this file. Passing `--profile auth` starts them
+  *in addition to* the default services, on their own container names and
+  ports (`vm-console-auth` on 3001, `vm-auth` on 8427), so nothing about the
+  default path changes or conflicts.
+- **`console-auth`'s `VM_URL` / `VMALERT_URL` both point at
+  `http://vmauth:8427`.** `docker/vmauth.yml` defines two users, `console-vm`
+  and `console-vmalert`, each mapped to one backend via `url_prefix`; vmauth
+  picks the backend by which Basic Auth credentials the request carries, so
+  the two proxies can share one port even though both request `/api/v1/...`
+  paths. `VM_BASIC_AUTH` / `VMALERT_BASIC_AUTH` on `console-auth` carry those
+  credentials. They're throwaway local-dev passwords, committed on purpose —
+  don't reuse them anywhere that isn't `docker compose up` on your laptop.
 - **Versions are pinned to the v1.136 LTS line.** Avoid v1.140.0, v1.136.4 and
   v1.122.19 — those mis-evaluate operand order in binary expressions.
 - **`-search.latencyOffset=10s`.** VictoriaMetrics defaults to 30s, which hides
@@ -57,16 +86,18 @@ docker compose down -v
 
 ### What's actually collected out of the box
 
-`docker/scrape.yml` gives `vmagent` three jobs, each scraped every 10s and
-labeled `component=storage/agent/alerting` plus the global `env=local`. Every
-target also carries the standard Go (`go_*`) and process (`process_*`)
-metrics on top of what's listed below.
+`docker/scrape.yml` gives `vmagent` five jobs, each scraped every 10s and
+labeled `component=storage/agent/alerting/auth/host` plus the global
+`env=local`. Every target also carries the standard Go (`go_*`) and process
+(`process_*`) metrics on top of what's listed below.
 
 | Job | Target | What it exposes |
 | --- | --- | --- |
 | `victoriametrics` | `victoriametrics:8428` | Storage/ingestion metrics — `vm_data_size_bytes`, `vm_rows_inserted_total`, `vm_http_request_errors_total`, `vm_indexdb_items_dropped_total`, `vm_concurrent_insert_current`, etc. |
 | `vmagent` | `vmagent:8429` | Scrape-pipeline metrics — `vm_promscrape_scrapes_failed_total`, `vm_promscrape_scrape_pool_targets`, `vmagent_remotewrite_*`, `vm_persistentqueue_*`, `vmagent_hourly_series_limit_*` |
 | `vmalert` | `vmalert:8880` | Rule-engine metrics — `vmalert_config_last_reload_successful`, `vmalert_alerting_rules_errors_total`, `vmalert_iteration_*`, `vmalert_remotewrite_*` |
+| `vmauth` | `vmauth:8427` | Auth/routing metrics — `vmauth_concurrent_requests_limit_reached_total`, `vmauth_user_request_errors_total`, `vmauth_http_request_errors_total`. Only resolves when the `auth` profile is running; otherwise it's just a down target vmagent retries harmlessly. |
+| `node` | `node-exporter:9100` | Host OS/hardware metrics — CPU, memory, disk, network (the Docker VM's, not the Mac's, on macOS) |
 
 **Derived series, not scraped.** None of `docker/alerts/rules/*.yml` define
 recording rules — only `alert:` conditions — so the only extra series vmalert
@@ -78,11 +109,12 @@ produces are the standard `ALERTS` / `ALERTS_FOR_STATE`, written back through
 - `alertmanager:9093` runs but has no scrape job — it's wired up purely as
   vmalert's notification sink, not scraped for its own metrics.
 - The console app itself isn't scraped.
-- `alerts-cluster.yml`, `alerts-vmanomaly.yml`, `alerts-vmauth.yml` and
-  `alerts-vmbackupmanager.yml` reference metrics from `vmselect`/`vminsert`/
-  `vmstorage`/`vmsingle`/`vmauth`/`vmanomaly`/`vmbackupmanager` — none of
-  those services exist in this compose file, so those rules simply sit idle
-  (no matching series) unless you deploy them separately.
+- `alerts-cluster.yml`, `alerts-vmanomaly.yml` and `alerts-vmbackupmanager.yml`
+  reference metrics from `vmselect`/`vminsert`/`vmstorage`/`vmsingle`/
+  `vmanomaly`/`vmbackupmanager` — none of those services exist in this compose
+  file, so those rules simply sit idle (no matching series) unless you deploy
+  them separately. `alerts-vmauth.yml` is the closest to being live — it needs
+  nothing deployed separately, just `docker compose --profile auth up`.
 
 This is also why the README's example queries (`vm_http_requests_total`,
 `vm_data_size_bytes`, `vm_rows_inserted_total`) resolve immediately on a fresh
@@ -126,14 +158,23 @@ The Alerts tab is optional and separately configured: set `VMALERT_URL` to
 wherever vmalert's HTTP API lives (`http://localhost:8880` for a local
 instance). Leave it unset if you don't run vmalert.
 
+`docker/vmauth.yml` is a working example of the "Behind vmauth" row above —
+one vmauth instance fronting both VictoriaMetrics and vmalert, selecting the
+backend per-user rather than per-path. Outside Docker, point `VM_URL`/
+`VMALERT_URL` at your own vmauth's `http://host:8427` and set
+`VM_BASIC_AUTH`/`VMALERT_BASIC_AUTH` (or the bearer-token variants) to match
+whatever `users:` entry you've configured there.
+
 ---
 
 ## How it is put together
 
 ```
 docker-compose.yml                VictoriaMetrics + vmagent + vmalert + console
+                                   (+ vmauth + console-auth, `auth` profile)
 Dockerfile                        multi-stage, non-root, healthchecked
 docker/scrape.yml                 what vmagent collects
+docker/vmauth.yml                 per-user routing: console-vm, console-vmalert
 src/
   routes/
     api/vm/[...path]/+server.ts       read-only proxy to VictoriaMetrics
@@ -234,3 +275,10 @@ cursor when it has focus.
   (`AlertsView.svelte`) lists every rule group with each rule's health, last
   evaluation time, and any currently firing/pending instances, and a play
   button on each rule drops its expression straight into the query editor.
+- **vmauth in front of both, opt-in.** `docker compose --profile auth up`
+  adds `vmauth` (`docker/vmauth.yml`) and a second console, `console-auth`
+  (port 3001), whose `VM_URL`/`VMALERT_URL` point at vmauth instead of the
+  bare services. One vmauth port, two `users:` entries (`console-vm`,
+  `console-vmalert`), routed by Basic Auth credentials rather than by path —
+  a working local example of the "Behind vmauth" deployment row above. The
+  default `console`/`docker compose up` is untouched by any of this.

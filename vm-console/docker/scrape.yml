@@ -32,6 +32,12 @@ scrape_configs:
         labels:
           component: alerting
 
+  - job_name: vmauth
+    static_configs:
+      - targets: ["vmauth:8427"]
+        labels:
+          component: auth
+
   #* macOS note: Docker on macOS runs containers inside a Linux VM,
   #* so node_exporter will report the VM's metrics (not the Mac's).
   #* For actual host hardware stats on macOS you'd need a native node_exporter binary running on the host itself.
