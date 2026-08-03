@@ -60,7 +60,7 @@ export class ConsoleState {
 
 	history = $state<string[]>([]);
 
-	#client: VmClient;
+	readonly #client: VmClient;
 	#timer: ReturnType<typeof setInterval> | null = null;
 	#generation = 0;
 
