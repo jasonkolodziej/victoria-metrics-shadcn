@@ -51,6 +51,39 @@ docker compose down -v
 - **`ORIGIN`** tells adapter-node where the browser reaches the app. Change it
   if you publish on another host or port.
 
+### What's actually collected out of the box
+
+`docker/scrape.yml` gives `vmagent` three jobs, each scraped every 10s and
+labeled `component=storage/agent/alerting` plus the global `env=local`. Every
+target also carries the standard Go (`go_*`) and process (`process_*`)
+metrics on top of what's listed below.
+
+| Job | Target | What it exposes |
+| --- | --- | --- |
+| `victoriametrics` | `victoriametrics:8428` | Storage/ingestion metrics — `vm_data_size_bytes`, `vm_rows_inserted_total`, `vm_http_request_errors_total`, `vm_indexdb_items_dropped_total`, `vm_concurrent_insert_current`, etc. |
+| `vmagent` | `vmagent:8429` | Scrape-pipeline metrics — `vm_promscrape_scrapes_failed_total`, `vm_promscrape_scrape_pool_targets`, `vmagent_remotewrite_*`, `vm_persistentqueue_*`, `vmagent_hourly_series_limit_*` |
+| `vmalert` | `vmalert:8880` | Rule-engine metrics — `vmalert_config_last_reload_successful`, `vmalert_alerting_rules_errors_total`, `vmalert_iteration_*`, `vmalert_remotewrite_*` |
+
+**Derived series, not scraped.** None of `docker/alerts/rules/*.yml` define
+recording rules — only `alert:` conditions — so the only extra series vmalert
+produces are the standard `ALERTS` / `ALERTS_FOR_STATE`, written back through
+`vmagent:8429`'s remote-write when an alert actually fires.
+
+**Not collected:**
+
+- `alertmanager:9093` runs but has no scrape job — it's wired up purely as
+  vmalert's notification sink, not scraped for its own metrics.
+- The console app itself isn't scraped.
+- `alerts-cluster.yml`, `alerts-vmanomaly.yml`, `alerts-vmauth.yml` and
+  `alerts-vmbackupmanager.yml` reference metrics from `vmselect`/`vminsert`/
+  `vmstorage`/`vmsingle`/`vmauth`/`vmanomaly`/`vmbackupmanager` — none of
+  those services exist in this compose file, so those rules simply sit idle
+  (no matching series) unless you deploy them separately.
+
+This is also why the README's example queries (`vm_http_requests_total`,
+`vm_data_size_bytes`, `vm_rows_inserted_total`) resolve immediately on a fresh
+`docker compose up`.
+
 ---
 
 ## Local development
@@ -97,21 +130,26 @@ src/
   routes/
     api/vm/[...path]/+server.ts   read-only proxy to VictoriaMetrics
     +layout.svelte                chrome, fonts, light/dark
-    +page.svelte                  console layout
+    +page.svelte                  console layout, URL state sync
   lib/
     vm/
       types.ts                    API response shapes
       client.ts                   typed client, talks to the proxy
       format.ts                   SI values, axis ticks, auto step
+      metricsql.ts                CodeMirror language + completion source
     state/
       console.svelte.ts           ConsoleState — the whole session
     components/
       MetricRail.svelte           metric and label browser
-      QueryBar.svelte             editor, run, history
+      QueryBar.svelte             editor, run, trace toggle, history
+      QueryEditor.svelte          CodeMirror 6, MetricsQL autocomplete
       RangeControl.svelte         window, step, refresh
       PaperPlot.svelte            the plot
       ResultTable.svelte          per-series stats
       StatusStrip.svelte          timing, counts, errors
+      TracePanel.svelte           `trace=1` execution tree
+      TraceNode.svelte            one collapsible span in that tree
+      CardinalityView.svelte      /status/tsdb cardinality explorer
 ```
 
 **Everything goes through the proxy.** The browser never talks to
@@ -154,14 +192,21 @@ cursor when it has focus.
 
 ---
 
-## Things worth adding next
+## Recently added
 
-- **MetricsQL autocomplete.** `MetricRail` already fetches names and labels;
-  wiring them into a CodeMirror 6 editor with `@codemirror/autocomplete` is the
-  natural next step and would replace the plain textarea.
-- **Cardinality view.** `client.tsdbStatus()` is implemented and unused. It
-  backs the same data as VM's own cardinality explorer.
-- **URL state.** Serialising expression, mode and window into the query string
-  would make results shareable and give back/forward for free.
-- **Query tracing.** VictoriaMetrics accepts `trace=1` and returns an execution
-  tree, which is the fastest way to explain a slow query.
+- **MetricsQL autocomplete.** `QueryEditor.svelte` replaces the plain textarea
+  with CodeMirror 6. `lib/vm/metricsql.ts` supplies a lightweight tokenizer for
+  syntax colour and a `@codemirror/autocomplete` source that mixes static
+  aggregators/functions with metric, label and label-value names fetched live
+  from VictoriaMetrics, with light TTL caching per editor instance.
+- **Cardinality view.** A "Cardinality" tab next to the query view renders
+  `client.tsdbStatus()` — series by metric name, by label name, label values
+  by label name, and series by label=value pair, the same data VM's own
+  cardinality explorer uses.
+- **URL state.** `+page.svelte` serialises the executed expression, mode and
+  window into the query string (`?q=…&mode=…&range=…&end=…&step=…&refresh=…`),
+  so results are shareable and the browser's back/forward buttons step through
+  the queries that were actually run.
+- **Query tracing.** A "Trace" toggle in `QueryBar` requests `trace=1`;
+  VictoriaMetrics' execution tree renders in `TracePanel`/`TraceNode` as a
+  collapsible list of spans with per-step timing.

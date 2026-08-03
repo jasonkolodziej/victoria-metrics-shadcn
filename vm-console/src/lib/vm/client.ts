@@ -3,6 +3,7 @@ import {
 	type ApiEnvelope,
 	type Labels,
 	type QueryData,
+	type TraceSpan,
 	type TsdbStatus
 } from './types.js';
 
@@ -13,6 +14,7 @@ export interface QueryResult {
 	warnings: string[];
 	/** Wall-clock round trip in milliseconds. */
 	elapsedMs: number;
+	trace?: TraceSpan;
 }
 
 /**
@@ -68,25 +70,37 @@ export class VmClient {
 			throw new VmError(`VictoriaMetrics returned ${response.status}.`, 'http', response.status);
 		}
 
-		return { data: body.data, warnings: body.warnings ?? [], elapsedMs };
+		return { data: body.data, warnings: body.warnings ?? [], elapsedMs, trace: body.trace };
 	}
 
 	/** Evaluate an expression at a single point in time. */
-	async instant(expr: string, atMs: number, opts: { timeoutSec?: number } = {}) {
+	async instant(
+		expr: string,
+		atMs: number,
+		opts: { timeoutSec?: number; trace?: boolean } = {}
+	) {
 		return this.#get<QueryData>('query', {
 			query: expr,
 			time: toUnix(atMs),
-			timeout: opts.timeoutSec ? `${opts.timeoutSec}s` : undefined
+			timeout: opts.timeoutSec ? `${opts.timeoutSec}s` : undefined,
+			trace: opts.trace ? '1' : undefined
 		});
 	}
 
 	/** Evaluate an expression across a time range at a fixed resolution. */
-	async range(expr: string, startMs: number, endMs: number, stepSec: number) {
+	async range(
+		expr: string,
+		startMs: number,
+		endMs: number,
+		stepSec: number,
+		opts: { trace?: boolean } = {}
+	) {
 		return this.#get<QueryData>('query_range', {
 			query: expr,
 			start: toUnix(startMs),
 			end: toUnix(endMs),
-			step: `${stepSec}s`
+			step: `${stepSec}s`,
+			trace: opts.trace ? '1' : undefined
 		});
 	}
 

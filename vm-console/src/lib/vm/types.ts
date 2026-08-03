@@ -30,8 +30,15 @@ export type QueryData =
 	| { resultType: 'string'; result: Sample };
 
 export type ApiEnvelope<T> =
-	| { status: 'success'; data: T; warnings?: string[] }
+	| { status: 'success'; data: T; warnings?: string[]; trace?: TraceSpan }
 	| { status: 'error'; errorType?: string; error: string };
+
+/** One node of the `trace=1` execution tree VictoriaMetrics can attach to a query. */
+export interface TraceSpan {
+	duration_msec: number;
+	message: string;
+	children?: TraceSpan[];
+}
 
 /** One row of /api/v1/status/tsdb cardinality output. */
 export interface TsdbEntry {

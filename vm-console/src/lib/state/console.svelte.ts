@@ -1,6 +1,12 @@
 import { VmClient } from '$lib/vm/client.js';
 import { autoStep, toPlotSeries } from '$lib/vm/format.js';
-import { VmError, type PlotSeries, type QueryData, type QueryMode } from '$lib/vm/types.js';
+import {
+	VmError,
+	type PlotSeries,
+	type QueryData,
+	type QueryMode,
+	type TraceSpan
+} from '$lib/vm/types.js';
 
 export interface RangePreset {
 	label: string;
@@ -39,11 +45,14 @@ export class ConsoleState {
 	/** Explicit step in seconds, or `null` to size it from the range. */
 	stepOverride = $state<number | null>(null);
 	refreshMs = $state(0);
+	/** Ask VictoriaMetrics for an execution trace with the next run. */
+	traceEnabled = $state(false);
 
 	loading = $state(false);
 	error = $state<string | null>(null);
 	warnings = $state<string[]>([]);
 	data = $state<QueryData | null>(null);
+	trace = $state<TraceSpan | null>(null);
 	elapsedMs = $state(0);
 	ranAt = $state<number | null>(null);
 	/** The expression that produced `data` — may lag behind `expr` while typing. */
@@ -109,6 +118,8 @@ export class ConsoleState {
 			this.data = null;
 			this.error = null;
 			this.ranAt = null;
+			this.trace = null;
+			this.ranExpr = '';
 			return;
 		}
 
@@ -120,8 +131,10 @@ export class ConsoleState {
 			const end = this.endMs;
 			const result =
 				this.mode === 'instant'
-					? await this.#client.instant(expr, end)
-					: await this.#client.range(expr, end - this.rangeMs, end, this.stepSec);
+					? await this.#client.instant(expr, end, { trace: this.traceEnabled })
+					: await this.#client.range(expr, end - this.rangeMs, end, this.stepSec, {
+							trace: this.traceEnabled
+						});
 
 			// A newer query started while this one was in flight — drop the result.
 			if (generation !== this.#generation) return;
@@ -129,12 +142,14 @@ export class ConsoleState {
 			this.data = result.data;
 			this.warnings = result.warnings;
 			this.elapsedMs = result.elapsedMs;
+			this.trace = result.trace ?? null;
 			this.ranAt = Date.now();
 			this.ranExpr = expr;
 			this.remember(expr);
 		} catch (err) {
 			if (generation !== this.#generation) return;
 			this.data = null;
+			this.trace = null;
 			this.error =
 				err instanceof VmError ? err.message : 'Something went wrong running that query.';
 		} finally {
