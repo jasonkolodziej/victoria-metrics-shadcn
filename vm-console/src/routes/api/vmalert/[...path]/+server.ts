@@ -9,6 +9,12 @@ import type { RequestHandler } from './$types';
  */
 const ALLOWED = new Set(['groups', 'alerts', 'rule']);
 
+const UPSTREAM_PATH: Record<string, string> = {
+	groups: 'rules',
+	alerts: 'alerts',
+	rule: 'rule'
+};
+
 function isAllowed(path: string) {
 	return ALLOWED.has(path);
 }
@@ -34,7 +40,8 @@ export const GET: RequestHandler = async ({ params, url, fetch }) => {
 		error(404, `No vmalert endpoint at /${path}.`);
 	}
 
-	const target = `${upstreamBase()}/api/v1/${path}${url.search}`;
+	const upstreamPath = UPSTREAM_PATH[path];
+	const target = `${upstreamBase()}/api/v1/${upstreamPath}${url.search}`;
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), Number(env.VMALERT_TIMEOUT_MS ?? 15_000));
 
