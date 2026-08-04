@@ -15,7 +15,7 @@ OUT="${OUT_FILE:-/out/vmauth-cloudflare.yml}"
   echo "# vmauth acts as a routing proxy; JWT auth is enforced by cloudflared."
   echo "# Team: ${CLOUDFLARE_TEAM_DOMAIN}  AUD: ${CLOUDFLARE_ACCESS_AUD}"
   echo "unauthorized_user:"
-  echo "  url_prefix: \"http://console:3000/\""
+  echo "  url_prefix: \"http://console-cloudflare:3000/\""
 } >"$OUT"
 
 echo "Wrote ${OUT}:" >&2

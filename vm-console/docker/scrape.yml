@@ -32,11 +32,20 @@ scrape_configs:
         labels:
           component: alerting
 
+  # vmauth only runs under --profile basic-auth or --profile cloudflare-auth.
+  # Targets that don't resolve produce a scrape error — use container_name so
+  # absent services fail fast rather than timing out on a stale DNS entry.
   - job_name: vmauth
+    scrape_interval: 30s
     static_configs:
-      - targets: ["vmauth:8427"]
+      - targets: ["vm-auth:8427"]
         labels:
           component: auth
+          profile: basic-auth
+      - targets: ["vm-auth-cloudflare:8427"]
+        labels:
+          component: auth
+          profile: cloudflare-auth
 
   #* macOS note: Docker on macOS runs containers inside a Linux VM,
   #* so node_exporter will report the VM's metrics (not the Mac's).

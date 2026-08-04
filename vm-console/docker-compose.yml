@@ -82,6 +82,39 @@ services:
       # Where the browser reaches this app. adapter-node checks it on requests
       # that change state; change it if you publish on another host or port.
       ORIGIN: http://localhost:3000
+      # Cloudflare Access JWT validation — only enforced when both are set.
+      # Set in vm-console/.env or exported in shell for the cloudflare-auth profile.
+      CLOUDFLARE_TEAM_DOMAIN: ${CLOUDFLARE_TEAM_DOMAIN:-}
+      CLOUDFLARE_ACCESS_AUD: ${CLOUDFLARE_ACCESS_AUD:-}
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+      vmalert:
+        condition: service_started
+
+  # --- `cloudflare-auth` console variant ------------------------------------
+  # Identical to `console` but: no host port binding (only reachable through
+  # vmauth-cloudflare), ORIGIN set to the public tunnel hostname so SvelteKit's
+  # CSRF check passes for state-changing requests, and JWT enforcement active.
+  console-cloudflare:
+    profiles: ['cloudflare-auth']
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vm-console-cloudflare
+    restart: unless-stopped
+    networks:
+      - default
+      - cloudflare_tunnel
+    environment:
+      VM_URL: http://victoriametrics:8428
+      VM_TIMEOUT_MS: '60000'
+      VMALERT_URL: http://vmalert:8880
+      VMALERT_TIMEOUT_MS: '15000'
+      # Must match the public tunnel hostname — SvelteKit validates Host against this.
+      ORIGIN: https://${CLOUDFLARE_HOSTNAME:-vm.jasonkolodziej.com}
+      CLOUDFLARE_TEAM_DOMAIN: ${CLOUDFLARE_TEAM_DOMAIN:-}
+      CLOUDFLARE_ACCESS_AUD: ${CLOUDFLARE_ACCESS_AUD:-}
     depends_on:
       victoriametrics:
         condition: service_healthy
@@ -259,7 +292,7 @@ services:
     depends_on:
       cloudflare-jwt-keys:
         condition: service_completed_successfully
-      console:
+      console-cloudflare:
         condition: service_started
     healthcheck:
       test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8427/health']
