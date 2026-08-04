@@ -1,18 +1,23 @@
-# vmauth routing config.
+# vmauth routing config for the `basic-auth` profile.
+#
+# Commented out by default — a fresh checkout shouldn't ship with even
+# throwaway credentials silently active. Uncomment the `users:` block below
+# (and ideally change the passwords) before running:
+#   docker compose --profile basic-auth up -d --build
+# vmauth refuses to start with an empty `users:` list, so leaving this
+# commented is effectively "basic-auth profile disabled" until you opt in.
 #
 # vmauth listens on one port and picks the backend per request by matching
-# Basic Auth credentials against the `users` below — there's no path overlap
+# Basic Auth credentials against the users below — there's no path overlap
 # to worry about, since `console-vm` and `console-vmalert` are different
 # identities even though both proxies request `/api/v1/...` paths.
-#
-# These are throwaway local-dev credentials, plain in this repo on purpose —
-# don't reuse them anywhere that isn't `docker compose up` on your laptop.
 # Docs: https://docs.victoriametrics.com/victoriametrics/vmauth/
-users:
-  - username: console-vm
-    password: local-dev-vm
-    url_prefix: 'http://victoriametrics:8428/'
 
-  - username: console-vmalert
-    password: local-dev-vmalert
-    url_prefix: 'http://vmalert:8880/'
+# users:
+#   - username: console-vm
+#     password: local-dev-vm
+#     url_prefix: 'http://victoriametrics:8428/'
+#
+#   - username: console-vmalert
+#     password: local-dev-vmalert
+#     url_prefix: 'http://vmalert:8880/'

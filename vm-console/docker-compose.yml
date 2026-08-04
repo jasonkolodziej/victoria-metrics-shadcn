@@ -67,6 +67,9 @@ services:
     restart: unless-stopped
     ports:
       - '3000:3000'
+    networks:
+      - default
+      - cloudflare_tunnel
     environment:
       # Container-to-container, so this is the service name — not localhost.
       # Only the console's server process ever resolves it; the browser talks
@@ -85,15 +88,16 @@ services:
       vmalert:
         condition: service_started
 
-  # --- `auth` profile ----------------------------------------------------
+  # --- `basic-auth` profile ------------------------------------------------
   # Same app, reached through vmauth instead of talking to VictoriaMetrics
   # and vmalert directly. Off by default so `docker compose up` keeps working
   # exactly as before; opt in with:
-  #   docker compose --profile auth up -d --build
+  #   docker compose --profile basic-auth up -d --build
   # Runs alongside the plain `console` above (different port), not instead of
-  # it — nothing about the default path changes when you turn this on.
+  # it — nothing about the default path changes when you turn this on. Also
+  # requires uncommenting the `users:` block in docker/vmauth.yml first.
   console-auth:
-    profiles: ['auth']
+    profiles: ['basic-auth']
     build:
       context: .
       dockerfile: Dockerfile
@@ -114,10 +118,10 @@ services:
         condition: service_healthy
 
   # vmauth fronts VictoriaMetrics and vmalert behind one authenticated
-  # endpoint. Only `console-auth` (the `auth` profile) talks to it — see
-  # docker/vmauth.yml for the routing/credentials.
+  # endpoint. Only `console-auth` (the `basic-auth` profile) talks to it —
+  # see docker/vmauth.yml for the routing/credentials.
   vmauth:
-    profiles: ['auth']
+    profiles: ['basic-auth']
     image: victoriametrics/vmauth:latest # v1.136.14
     container_name: vm-auth
     restart: unless-stopped
@@ -133,6 +137,129 @@ services:
       victoriametrics:
         condition: service_healthy
       vmalert:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8427/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # --- `cloudflare-auth` profile --------------------------------------------
+  # Two layers: Cloudflare Access is the *actual* gate — it authenticates the
+  # user at Cloudflare's edge and blocks the request before cloudflared ever
+  # proxies it inward. `vmauth-cloudflare` is a second, origin-side check on
+  # top of that: it independently verifies the signature on the
+  # `Cf-Access-Jwt-Assertion` JWT Access forwards, so a request that somehow
+  # reached this network without going through Cloudflare's edge (a
+  # misconfigured route, a compromised neighbour container) still gets
+  # rejected here. Neither layer touches the plain `console`/`basic-auth`
+  # services above.
+  #
+  #   docker compose --profile cloudflare-auth up -d --build
+  #
+  # One-time setup outside this repo, in the Cloudflare Zero Trust dashboard:
+  #   1. Networks > Tunnels: create a tunnel, add a public hostname whose
+  #      service is http://vm-auth-cloudflare:8427 — the container_name below,
+  #      not the compose service name `vmauth-cloudflare`. Both should be
+  #      valid Docker DNS names, but only the container_name resolved
+  #      reliably from cloudflared in testing. Use http://console:3000
+  #      directly instead if you'd rather skip the origin-side check and
+  #      rely on Access alone.
+  #   2. Access > Applications: create an application for that hostname with
+  #      whatever policy/IdP you want. Cloudflare's own login works out of
+  #      the box; Dex or any other IdP you've connected to Access works too.
+  #      Copy its Audience (AUD) tag from the app's Overview tab.
+  #   3. Copy the tunnel token from step 1, and your team domain (the <team>
+  #      in <team>.cloudflareaccess.com, under Settings > Custom Pages) and
+  #      the AUD tag from step 2, into CLOUDFLARE_TUNNEL_TOKEN,
+  #      CLOUDFLARE_TEAM_DOMAIN and CLOUDFLARE_ACCESS_AUD — either exported
+  #      in your shell or added to vm-console/.env, which compose reads for
+  #      interpolation too, separately from how the app reads its own env.
+  #   4. Fetch the current signing keys once so vmauth-cloudflare has
+  #      something to check against — the `cloudflare-jwt-keys` service below
+  #      does this automatically on startup, but Cloudflare rotates keys
+  #      roughly every 6 weeks, so re-run it periodically:
+  #        docker compose run --rm cloudflare-jwt-keys
+  cloudflared:
+    profiles: ['cloudflare-auth']
+    image: cloudflare/cloudflared:latest
+    container_name: vm-cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    networks:
+      - cloudflare_tunnel
+    extra_hosts: #? https://community.cloudflare.com/t/browser-ssh-connection-using-cloudflared-docker-image-not-working/449037/10
+      - "host.docker.internal:host-gateway" #? https://docs.docker.com/desktop/features/networking/#i-want-to-connect-from-a-container-to-a-service-on-the-host
+      - "host.containers.internal:host-gateway" #? https://developers.redhat.com/articles/2021/09/14/podman-tips-tricks#access-host-services
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    environment:
+      # A plain ${VAR:?...} required-variable here would fail interpolation
+      # for the *whole* compose file, including plain `docker compose up`
+      # with no profile — compose resolves all services' variables up front,
+      # before filtering by profile. Defaulting to empty and letting
+      # cloudflared itself refuse to start on a blank token is the only way
+      # to keep this profile truly opt-in.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      vmauth-cloudflare:
+        condition: service_healthy
+
+  # One-shot: fetches Cloudflare Access's current JWT signing certs and
+  # writes vmauth-cloudflare's `jwt.public_keys` config from them, via
+  # docker/fetch-cloudflare-certs.sh. Exits after writing the file; re-run it
+  # (see step 4 above) to pick up rotated keys.
+  cloudflare-jwt-keys:
+    profiles: ['cloudflare-auth']
+    image: alpine:3.20
+    container_name: vm-cloudflare-jwt-keys
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - 'sh /fetch-certs.sh'
+    environment:
+      CLOUDFLARE_TEAM_DOMAIN: ${CLOUDFLARE_TEAM_DOMAIN:-}
+      CLOUDFLARE_ACCESS_AUD: ${CLOUDFLARE_ACCESS_AUD:-}
+    volumes:
+      - ./docker/fetch-cloudflare-certs.sh:/fetch-certs.sh:ro
+      - vmauth-cloudflare-config:/out
+
+  # The origin-side JWT check described above. Only cloudflared talks to it —
+  # see docker/fetch-cloudflare-certs.sh for how its config is produced.
+  # NOTE: the plain `console` service still exposes :3000 on the host. If you
+  # want to fully enforce Cloudflare Access, block :3000 at the host firewall
+  # so the only inbound path is cloudflared → vmauth-cloudflare → console.
+  vmauth-cloudflare:
+    profiles: ['cloudflare-auth']
+    image: victoriametrics/vmauth:latest # v1.136.14
+    container_name: vm-auth-cloudflare
+    restart: unless-stopped
+    ports:
+      - '8437:8427'
+    volumes:
+      - vmauth-cloudflare-config:/etc/vmauth:ro
+    networks:
+      - cloudflare_tunnel
+    command:
+      - -auth.config=/etc/vmauth/vmauth-cloudflare.yml
+      - -httpListenAddr=:8427
+      # Read the token from Cloudflare's header instead of the default
+      # `Authorization` — the reason this can't share the `basic-auth`
+      # profile's vmauth instance, which reads Authorization for Basic Auth.
+      # No -httpAuthHeader: vmauth JWT auth always requires Authorization: Bearer,
+      # which cloudflared doesn't set. Auth is enforced by cloudflared (required JWT)
+      # and Cloudflare Access at the edge; vmauth acts as a routing proxy here.
+      - -loggerFormat=json
+    depends_on:
+      cloudflare-jwt-keys:
+        condition: service_completed_successfully
+      console:
         condition: service_started
     healthcheck:
       test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8427/health']
@@ -199,3 +326,9 @@ services:
 volumes:
   vm-data:
   vmagent-data:
+  vmauth-cloudflare-config:
+
+networks:
+  cloudflare_tunnel:
+    attachable: true
+    name: cloudflare_tunnel
